@@ -4,6 +4,9 @@ A one-file, offline editor for [PowerTune Digital](https://github.com/PowerTuneD
 dash pages, plus a few page tools. Unofficial; not affiliated with PowerTune Digital. GPL-3 (it embeds
 PowerTune's channel list).
 
+> **No warranty - use at your own risk.** The preview approximates the dash; check every page on the
+> real dash. Credits to the PowerTune authors and the full warning: [NOTICE.md](NOTICE.md).
+
 ## dash-editor.html
 
 Open it in Chrome or Edge (double-click). It reads and writes the same `.txt` page format as the dash's
