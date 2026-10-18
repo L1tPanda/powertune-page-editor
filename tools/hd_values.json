@@ -1,0 +1,9 @@
+{
+  "_note": "Real idle readings from the ME13 decoder trace (2026-10-17) plus odometer/trip from the dash photo; used only for HD screenshots.",
+  "rpm": 1066, "speed": 0, "Odo": 150095.9, "Trip": 2507,
+  "TPS": 0, "MAP": 32.7, "targetbstlelkpa": 100, "BoostPreskpa": -68.6, "Gear": 0,
+  "Watertemp": 59.6, "Intaketemp": 14.0, "oiltemp": 19.8, "oilpres": 382, "FuelPress": 295, "Fueltemp": 0, "BatteryV": 13.2,
+  "AFRcyl1": 13.6, "AFRcyl2": 13.6, "AFRLEFTBANKTARGET": 14.7, "LAMBDA": 1.0, "fuelcomposition": 0, "Flag1": 7250, "BoostDuty": 0,
+  "Ign": 13.3, "Dwell": 2.8, "InjDuty": 1.5, "Primaryinp": 1.8, "InjAngle": 380, "InjDuty2": 0, "Secinjpulse": 0,
+  "Inj2": 380, "Knock": 276, "knockretardbank1": 0, "egt2": 157, "egt1": 0, "Analog0": 0, "Analog1": 0
+}

@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerTune Page Editor</title>
+<style>
+  :root {
+    --bg: #f4f4f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #d9d9d4;
+    --accent: #2b6cb0; --sel: #f6ad55; --danger: #c53030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #212120; --ink: #ececea; --muted: #9a9a94; --line: #3a3a37;
+      --accent: #63a4e8; --sel: #f6ad55; --danger: #fc8181; }
+  }
+  /* The dash's own font, from the backup (used when the page can read files next to it). */
+  @font-face { font-family: "Nissan"; src: url("../dash-files/usr/share/fonts/PowertuneDigital/Nissan.ttf"); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; }
+  button, select, input { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  label.file { display: inline-block; }
+  label.file input { display: none; }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; padding: 16px; }
+  @media (max-width: 1100px) { main { grid-template-columns: minmax(0,1fr); } }
+  .stagewrap { overflow: auto; }
+  #stage { position: relative; width: 800px; height: 480px; background: #000; overflow: hidden;
+    outline: 1px solid var(--line); transform-origin: 0 0; user-select: none; }
+  #stage .g { position: absolute; cursor: move; }
+  #stage .g.sel { outline: 2px dashed var(--sel); outline-offset: 1px; z-index: 1000; }
+  #stage .g.hidden { outline: 1px dotted #666; }
+  /* the dash uses PreserveAspectFit for page backgrounds */
+  #stage img.bgimg { position: absolute; inset: 0; width: 800px; height: 480px; object-fit: contain; pointer-events: none; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; color: var(--muted); }
+  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; align-self: start; }
+  aside h2 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: grid; grid-template-columns: 110px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .row input, .row select { width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
+  .muted { color: var(--muted); }
+  ul#list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 260px; overflow: auto; border-top: 1px solid var(--line); }
+  ul#list li { padding: 4px 6px; cursor: pointer; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  ul#list li.sel { background: color-mix(in srgb, var(--sel) 25%, transparent); }
+  #msg { min-height: 1.4em; color: var(--muted); }
+  #selBtns { margin-top: 8px; display: flex; gap: 6px; }
+  [hidden] { display: none !important; }
+  details { margin-top: 10px; }
+  details textarea { width: 100%; height: 120px; font: 12px ui-monospace, Consolas, monospace; background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PowerTune Page Editor</h1>
+  <label class="file"><input type="file" id="openTxt" accept=".txt"><button type="button" onclick="this.previousElementSibling.click()">Open page .txt</button></label>
+  <label class="file"><input type="file" id="openConf" accept=".conf"><button type="button" onclick="this.previousElementSibling.click()">Open live pages (PowerTune.conf)</button></label>
+  <select id="confPage" hidden></select>
+  <label class="file"><input type="file" id="openImgs" webkitdirectory multiple><button type="button" onclick="this.previousElementSibling.click()" title="Pick dash-files/home/pi/Logo">Images folder…</button></label>
+  <span class="sep"></span>
+  <button id="addText">+ Text</button>
+  <button id="addValue">+ Value</button>
+  <button id="addSquare">+ Square</button>
+  <span class="sep"></span>
+  <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+  <span class="sep"></span>
+  <input id="fname" value="MyDash" size="14" title="File name to save as">
+  <button class="primary" id="save">Save .txt</button>
+</header>
+
+<main>
+  <section>
+    <div class="stagewrap"><div id="stage"></div></div>
+    <div class="bar">
+      <span>RPM preview <input type="range" id="rpm" min="0" max="9000" step="50" value="3000"> <b id="rpmv">3000</b></span>
+      <span>Background <select id="bg"><option value="">black</option></select></span>
+      <span>Zoom <select id="zoom"><option value="fit" selected>Fit</option><option>1</option><option>1.25</option><option>1.5</option><option>2</option></select></span>
+    </div>
+    <p id="msg"></p>
+  </section>
+
+  <aside>
+    <h2 id="selTitle">Nothing selected</h2>
+    <div id="props" class="muted">Click a gauge on the screen or in the list. Drag to move; arrow keys nudge (Shift = 10px). Delete removes.</div>
+    <div id="selBtns" hidden>
+      <button id="dup">Duplicate</button><button id="del" class="danger">Delete</button>
+    </div>
+    <ul id="list"></ul>
+    <details><summary class="muted">Raw file text</summary><textarea id="raw" readonly></textarea></details>
+  </aside>
+</main>
+
+<datalist id="dslist"></datalist>
+<script>
+// Generated from the dash's DatasourcesList.qml
+const DATASOURCES = [{"t": "", "s": "Inj", "u": ""}, {"t": "Accel Ped Pos.", "s": "accelpedpos", "u": "%"}, {"t": "Accel. Timmer", "s": "AccelTimer", "u": "s"}, {"t": "Active boost table", "s": "activeboosttable", "u": ""}, {"t": "Active tune table", "s": "activetunetable", "u": ""}, {"t": "AFR", "s": "AFR", "u": "A/F"}, {"t": "AFR CYL 1", "s": "AFRcyl1", "u": "A/F"}, {"t": "AFR CYL 2", "s": "AFRcyl2", "u": "A/F"}, {"t": "AFR CYL 3", "s": "AFRcyl3", "u": "A/F"}, {"t": "AFR CYL 4", "s": "AFRcyl4", "u": "A/F"}, {"t": "AFR CYL 5", "s": "AFRcyl5", "u": "A/F"}, {"t": "AFR CYL 6", "s": "AFRcyl6", "u": "A/F"}, {"t": "AFR CYL 7", "s": "AFRcyl7", "u": "A/F"}, {"t": "AFR CYL 8", "s": "AFRcyl8", "u": "A/F"}, {"t": "AFR L. BANK TARGET", "s": "AFRLEFTBANKTARGET", "u": "A/F"}, {"t": "AFR L.BANK ACTUAL", "s": "AFRLEFTBANKACTUAL", "u": ""}, {"t": "AFR R. BANK TARGET", "s": "AFRRIGHTBANKTARGET", "u": "A/F"}, {"t": "AFR R.BANK ACTUAL", "s": "AFRRIGHTBANKACTUAL", "u": "A/F"}, {"t": "Air T.2", "s": "airtempensor2", "u": "°C"}, {"t": "Alternator Light", "s": "alternatorfail", "u": ""}, {"t": "Ambi Pres.", "s": "ambipress", "u": "kPa"}, {"t": "Ambi Temp.", "s": "ambitemp", "u": "°C"}, {"t": "Analog 0 Calc", "s": "AnalogCalc0", "u": ""}, {"t": "Analog 1 Calc", "s": "AnalogCalc1", "u": ""}, {"t": "Analog 10 Calc", "s": "AnalogCalc10", "u": ""}, {"t": "Analog 2 Calc", "s": "AnalogCalc2", "u": ""}, {"t": "Analog 3 Calc", "s": "AnalogCalc3", "u": ""}, {"t": "Analog 4 Calc", "s": "AnalogCalc4", "u": ""}, {"t": "Analog 5 Calc", "s": "AnalogCalc5", "u": ""}, {"t": "Analog 6 Calc", "s": "AnalogCalc6", "u": ""}, {"t": "Analog 7 Calc", "s": "AnalogCalc7", "u": ""}, {"t": "Analog 8 Calc", "s": "AnalogCalc8", "u": ""}, {"t": "Analog 9 Calc", "s": "AnalogCalc9", "u": ""}, {"t": "Analog0", "s": "Analog0", "u": "V"}, {"t": "Analog1", "s": "Analog1", "u": "V"}, {"t": "Analog10", "s": "Analog10", "u": "V"}, {"t": "Analog2", "s": "Analog2", "u": "V"}, {"t": "Analog3", "s": "Analog3", "u": "V"}, {"t": "Analog4", "s": "Analog4", "u": "V"}, {"t": "Analog5", "s": "Analog5", "u": "V"}, {"t": "Analog6", "s": "Analog6", "u": "V"}, {"t": "Analog7", "s": "Analog7", "u": "V"}, {"t": "Analog8", "s": "Analog8", "u": "V"}, {"t": "Analog9", "s": "Analog9", "u": "V"}, {"t": "Antilag launch", "s": "antilaglaunchon", "u": ""}, {"t": "Antilag sw.", "s": "antilaglauchswitch", "u": ""}, {"t": "Auto Trans", "s": "autogear", "u": ""}, {"t": "AUX Calc1", "s": "auxcalc1", "u": ""}, {"t": "AUX Calc2", "s": "auxcalc2", "u": ""}, {"t": "AUX Calc3", "s": "auxcalc3", "u": ""}, {"t": "AUX Calc4", "s": "auxcalc4", "u": ""}, {"t": "AUX Rev Limit Sw", "s": "auxrevlimitswitch", "u": ""}, {"t": "AUX Temp", "s": "AUXT", "u": "°C"}, {"t": "Aux Temp 1", "s": "AuxTemp1", "u": ""}, {"t": "Av. Fuel Economy", "s": "avfueleconomy", "u": ""}, {"t": "Average Fuel Economy", "s": "avfueleconomy", "u": ""}, {"t": "Battery Light", "s": "battlight", "u": ""}, {"t": "Battery Voltage", "s": "BatteryV", "u": "V"}, {"t": "Best Laptime", "s": "bestlaptime", "u": ""}, {"t": "Boost", "s": "BoostPres", "u": "kgcm2"}, {"t": "Boost (abs.)", "s": "Intakepress", "u": "kPa"}, {"t": "Boost Ctrl.", "s": "boostcontrol", "u": "%"}, {"t": "Boost Duty", "s": "BoostDuty", "u": "%"}, {"t": "BOOST OFFSET", "s": "BOOSTOFFSET", "u": ""}, {"t": "Boost Tp", "s": "Boosttp", "u": "%"}, {"t": "Boost Wg", "s": "Boostwg", "u": ""}, {"t": "Brake Pedal", "s": "brakepedalstate", "u": ""}, {"t": "Brake Pressure", "s": "brakepress", "u": "kPa"}, {"t": "Calibration select", "s": "CalibrationSelect", "u": ""}, {"t": "Clutch Sw", "s": "clutchswitchstate", "u": ""}, {"t": "Compass", "s": "compass", "u": ""}, {"t": "ControlBoardTemp", "s": "ControlBoardTemp", "u": ""}, {"t": "Coolant P.", "s": "coolantpress", "u": "kPa"}, {"t": "Cruisecontrol", "s": "Cruisecontrol", "u": ""}, {"t": "Current LAP No", "s": "currentLap", "u": ""}, {"t": "Cyl1 O2 Corr.", "s": "Cyl1_O2_Corr", "u": ""}, {"t": "Cyl2 O2 Corr.", "s": "Cyl2_O2_Corr", "u": "%"}, {"t": "Cyl3 O2 Corr.", "s": "Cyl3_O2_Corr", "u": "%"}, {"t": "Cyl4 O2 Corr.", "s": "Cyl4_O2_Corr", "u": "%"}, {"t": "Cyl5 O2 Corr.", "s": "Cyl5_O2_Corr", "u": "%"}, {"t": "Cyl6 O2 Corr.", "s": "Cyl6_O2_Corr", "u": "%"}, {"t": "Cyl7 O2 Corr.", "s": "Cyl7_O2_Corr", "u": "%"}, {"t": "Cyl8 O2 Corr.", "s": "Cyl8_O2_Corr", "u": "%"}, {"t": "DCBusCurrent", "s": "DCBusCurrent", "u": ""}, {"t": "DCBusVoltage", "s": "DCBusVoltage", "u": ""}, {"t": "Decel Cut", "s": "decelcut", "u": ""}, {"t": "DeltaResolverFiltered", "s": "DeltaResolverFiltered", "u": ""}, {"t": "Diff Oil T.", "s": "diffoiltemp", "u": "°C"}, {"t": "DigInput1FowardSw", "s": "DigInput1FowardSw", "u": ""}, {"t": "DigInput2ReverseSwDigInput2ReverseSw", "s": "DigInput2ReverseSw", "u": ""}, {"t": "DigInput3BrakeSw", "s": "DigInput3BrakeSw", "u": ""}, {"t": "DigInput4RegenDisableSw", "s": "DigInput4RegenDisableSw", "u": ""}, {"t": "DigInput5IgnSw", "s": "DigInput5IgnSw", "u": ""}, {"t": "DigInput6StartSw", "s": "DigInput6StartSw", "u": ""}, {"t": "DigInput7Bool", "s": "DigInput7Bool", "u": ""}, {"t": "DigInput8Bool", "s": "DigInput8Bool", "u": ""}, {"t": "DigitalInput 1", "s": "DigitalInput1", "u": ""}, {"t": "DigitalInput 2", "s": "DigitalInput2", "u": ""}, {"t": "DigitalInput 3", "s": "DigitalInput3", "u": ""}, {"t": "DigitalInput 4", "s": "DigitalInput4", "u": ""}, {"t": "DigitalInput 5", "s": "DigitalInput5", "u": ""}, {"t": "DigitalInput 6", "s": "DigitalInput6", "u": ""}, {"t": "DigitalInput 7", "s": "DigitalInput7", "u": ""}, {"t": "Dist. To Empty", "s": "distancetoempty", "u": "km"}, {"t": "Driven avg. speed", "s": "drivenavgspeed", "u": ""}, {"t": "DRIVESHAFT OFFSET", "s": "DRIVESHAFTOFFSET", "u": ""}, {"t": "Dwell", "s": "Dwell", "u": ""}, {"t": "ECT", "s": "Watertemp", "u": "°C"}, {"t": "ECU CPU temp", "s": "cputempecu", "u": "°C"}, {"t": "EGO correction cyl#1", "s": "EGOcor1", "u": ""}, {"t": "EGO correction cyl#2", "s": "EGOcor2", "u": ""}, {"t": "EGO correction cyl#3", "s": "EGOcor3", "u": ""}, {"t": "EGO correction cyl#4", "s": "EGOcor4", "u": ""}, {"t": "EGT 1", "s": "egt1", "u": "°C"}, {"t": "EGT 10", "s": "egt10", "u": "°C"}, {"t": "EGT 11", "s": "egt11", "u": "°C"}, {"t": "EGT 12", "s": "egt12", "u": "°C"}, {"t": "EGT 2", "s": "egt2", "u": "°C"}, {"t": "EGT 3", "s": "egt3", "u": "°C"}, {"t": "EGT 4", "s": "egt4", "u": "°C"}, {"t": "EGT 5", "s": "egt5", "u": "°C"}, {"t": "EGT 6", "s": "egt6", "u": "°C"}, {"t": "EGT 7", "s": "egt7", "u": "°C"}, {"t": "EGT 8", "s": "egt8", "u": "°C"}, {"t": "EGT 9", "s": "egt9", "u": "°C"}, {"t": "EGT diff.", "s": "egtdiff", "u": "°C"}, {"t": "EGT highest", "s": "egthighest", "u": "°C"}, {"t": "ElectricalOutFreq", "s": "ElectricalOutFreq", "u": ""}, {"t": "EMotorAngle", "s": "EMotorAngle", "u": ""}, {"t": "EMotorSpeed", "s": "EMotorSpeed", "u": ""}, {"t": "EMotorTemperature", "s": "EMotorTemperature", "u": ""}, {"t": "Eng. Load", "s": "EngLoad", "u": "%"}, {"t": "Engine Protection Reason", "s": "engineprotectionreason", "u": ""}, {"t": "Error", "s": "Error", "u": ""}, {"t": "Error code count", "s": "errorcodecount", "u": ""}, {"t": "Ethanol", "s": "fuelcomposition", "u": "%"}, {"t": "EX Analog Calc 0", "s": "EXAnalogCalc0", "u": ""}, {"t": "EX Analog Calc 1", "s": "EXAnalogCalc1", "u": ""}, {"t": "EX Analog Calc 2", "s": "EXAnalogCalc2", "u": ""}, {"t": "EX Analog Calc 3", "s": "EXAnalogCalc3", "u": ""}, {"t": "EX Analog Calc 4", "s": "EXAnalogCalc4", "u": ""}, {"t": "EX Analog Calc 5", "s": "EXAnalogCalc5", "u": ""}, {"t": "EX Analog Calc 6", "s": "EXAnalogCalc6", "u": ""}, {"t": "EX Analog Calc 7", "s": "EXAnalogCalc7", "u": ""}, {"t": "EX AnalogInput 0", "s": "EXAnalogInput0", "u": "V"}, {"t": "EX AnalogInput 1", "s": "EXAnalogInput1", "u": "V"}, {"t": "EX AnalogInput 2", "s": "EXAnalogInput2", "u": "V"}, {"t": "EX AnalogInput 3", "s": "EXAnalogInput3", "u": "V"}, {"t": "EX AnalogInput 4", "s": "EXAnalogInput4", "u": "V"}, {"t": "EX AnalogInput 5", "s": "EXAnalogInput5", "u": "V"}, {"t": "EX AnalogInput 6", "s": "EXAnalogInput6", "u": "V"}, {"t": "EX AnalogInput 7", "s": "EXAnalogInput7", "u": "V"}, {"t": "EX Digital Frequency 1", "s": "frequencyDIEX1", "u": ""}, {"t": "EX Digital Input 1", "s": "EXDigitalInput1", "u": ""}, {"t": "EX Digital Input 2", "s": "EXDigitalInput2", "u": ""}, {"t": "EX Digital Input 3", "s": "EXDigitalInput3", "u": ""}, {"t": "EX Digital Input 4", "s": "EXDigitalInput4", "u": ""}, {"t": "EX Digital Input 5", "s": "EXDigitalInput5", "u": ""}, {"t": "EX Digital Input 6", "s": "EXDigitalInput6", "u": ""}, {"t": "EX Digital Input 7", "s": "EXDigitalInput7", "u": ""}, {"t": "EX Digital Input 8", "s": "EXDigitalInput8", "u": ""}, {"t": "Exhaust Cam 1", "s": "excamangle1", "u": "°"}, {"t": "Exhaust Cam 2", "s": "excamangle2", "u": "°"}, {"t": "Flag1", "s": "Flag1", "u": ""}, {"t": "Flag10", "s": "Flag10", "u": ""}, {"t": "Flag11", "s": "Flag11", "u": ""}, {"t": "Flag12", "s": "Flag12", "u": ""}, {"t": "Flag13", "s": "Flag13", "u": ""}, {"t": "Flag14", "s": "Flag14", "u": ""}, {"t": "Flag15", "s": "Flag15", "u": ""}, {"t": "Flag16", "s": "Flag16", "u": ""}, {"t": "Flag17", "s": "Flag17", "u": ""}, {"t": "Flag18", "s": "Flag18", "u": ""}, {"t": "Flag19", "s": "Flag19", "u": ""}, {"t": "Flag2", "s": "Flag2", "u": ""}, {"t": "Flag20", "s": "Flag20", "u": ""}, {"t": "Flag21", "s": "Flag21", "u": ""}, {"t": "Flag22", "s": "Flag22", "u": ""}, {"t": "Flag23", "s": "Flag23", "u": ""}, {"t": "Flag24", "s": "Flag24", "u": ""}, {"t": "Flag25", "s": "Flag25", "u": ""}, {"t": "Flag3", "s": "Flag3", "u": ""}, {"t": "Flag4", "s": "Flag4", "u": ""}, {"t": "Flag5", "s": "Flag5", "u": ""}, {"t": "Flag6", "s": "Flag6", "u": ""}, {"t": "Flag7", "s": "Flag7", "u": ""}, {"t": "Flag8", "s": "Flag8", "u": ""}, {"t": "Flag9", "s": "Flag9", "u": ""}, {"t": "Flat Shift", "s": "flatshiftstate", "u": ""}, {"t": "FSL COMMAND", "s": "FSLCOMMAND", "u": ""}, {"t": "FSL INDEX", "s": "FSLINDEX", "u": ""}, {"t": "Fuel Cons.", "s": "fuelconsrate", "u": ""}, {"t": "Fuel cor. level", "s": "fuelclevel", "u": ""}, {"t": "Fuel Correction", "s": "Fuelc", "u": "%"}, {"t": "Fuel Cut", "s": "fuelcutperc", "u": "%"}, {"t": "Fuel flow", "s": "fuelflow", "u": "°"}, {"t": "Fuel flow dif.", "s": "fuelflowdiff", "u": ""}, {"t": "Fuel flow ret.", "s": "fuelflowret", "u": ""}, {"t": "Fuel Pres.", "s": "FuelPress", "u": "kPa"}, {"t": "Fuel Pres.2", "s": "FuelPress2", "u": "kPa"}, {"t": "Fuel T.", "s": "Fueltemp", "u": "°C"}, {"t": "Fuel tank level", "s": "FuelLevel", "u": ""}, {"t": "Fuel trim long B1", "s": "fueltrimlongtbank1", "u": "%"}, {"t": "Fuel trim long B2", "s": "fueltrimlongtbank2", "u": ""}, {"t": "Fuel trim short B1", "s": "fueltrimshorttbank1", "u": ""}, {"t": "Fuel trim short B2", "s": "fueltrimshorttbank2", "u": ""}, {"t": "GateDriverTemp", "s": "GateDriverTemp", "u": ""}, {"t": "Gear", "s": "Gear", "u": ""}, {"t": "Gear Caluclation", "s": "GearCalculation", "u": ""}, {"t": "Gear offset", "s": "Gearoffset", "u": ""}, {"t": "Gear Oil Pres.", "s": "GearOilPress", "u": "kPa"}, {"t": "Gear sw.", "s": "gearswitch", "u": ""}, {"t": "Generic out 1", "s": "genericoutput1", "u": ""}, {"t": "Giro Y", "s": "gyroy", "u": ""}, {"t": "GPS Altitude", "s": "gpsAltitude", "u": "m"}, {"t": "GPS Latitude", "s": "gpsLatitude", "u": ""}, {"t": "GPS Longitude", "s": "gpsLongitude", "u": ""}, {"t": "GPS Speed", "s": "gpsSpeed", "u": "kph"}, {"t": "GPS Time", "s": "gpsTime", "u": ""}, {"t": "GPS Visible Satelites", "s": "gpsVisibleSatelites", "u": ""}, {"t": "Gyro X", "s": "gyrox", "u": ""}, {"t": "Gyro Z", "s": "gyroz", "u": ""}, {"t": "Handbrake", "s": "handbrake", "u": ""}, {"t": "Highbeam", "s": "highbeam", "u": ""}, {"t": "Homecounter", "s": "homeccounter", "u": ""}, {"t": "IAT", "s": "Intaketemp", "u": ""}, {"t": "Idle Val.", "s": "IdleValue", "u": ""}, {"t": "IGBTPhaseATemp", "s": "IGBTPhaseATemp", "u": ""}, {"t": "IGBTPhaseBTemp", "s": "IGBTPhaseBTemp", "u": ""}, {"t": "IGBTPhaseCTemp", "s": "IGBTPhaseCTemp", "u": ""}, {"t": "Ignition", "s": "Ign", "u": ""}, {"t": "Ignition 1", "s": "Ign1", "u": ""}, {"t": "Ignition 2", "s": "Ign2", "u": ""}, {"t": "Ignition 3", "s": "Ign3", "u": ""}, {"t": "Ignition 4", "s": "Ign4", "u": ""}, {"t": "Ignition cut", "s": "igncut", "u": ""}, {"t": "Inj timing.", "s": "injms", "u": "ms"}, {"t": "Inj. Angle", "s": "InjAngle", "u": "°"}, {"t": "Inj. Duty", "s": "InjDuty", "u": "%"}, {"t": "Inj. Duty 1", "s": "Inj1", "u": "%"}, {"t": "Inj. Duty 2", "s": "Inj2", "u": "%"}, {"t": "Inj. Duty 3", "s": "Inj3", "u": "%"}, {"t": "Inj. Duty 4", "s": "Inj4", "u": "%"}, {"t": "Inj. Duty sec", "s": "InjDuty2", "u": "%"}, {"t": "Inlet Cam 1 angle", "s": "incamangle1", "u": ""}, {"t": "Inlet Cam 2 angle", "s": "incamangle2", "u": ""}, {"t": "ISCV duty", "s": "Iscvduty", "u": "%"}, {"t": "Knock", "s": "Knock", "u": ""}, {"t": "Knock % cyl#1", "s": "Knock_cyl1", "u": ""}, {"t": "Knock % cyl#2", "s": "Knock_cyl2", "u": ""}, {"t": "Knock % cyl#3", "s": "Knock_cyl3", "u": ""}, {"t": "Knock % cyl#4", "s": "Knock_cyl4", "u": ""}, {"t": "Knock all peak", "s": "knockallpeak", "u": ""}, {"t": "Knock correction", "s": "knockcorr", "u": ""}, {"t": "Knock last cylinder", "s": "knocklastcyl", "u": ""}, {"t": "Knock restard 1", "s": "knockretardbank1", "u": "°"}, {"t": "Knock restard 2", "s": "knockretardbank2", "u": "°"}, {"t": "Knocklevel 1", "s": "knocklevlogged1", "u": "dB"}, {"t": "Knocklevel 2", "s": "knocklevlogged2", "u": "dB"}, {"t": "Lambda 1", "s": "LAMBDA", "u": "λ"}, {"t": "Lambda 2", "s": "lambda2", "u": "λ"}, {"t": "Lambda 3", "s": "lambda3", "u": "λ"}, {"t": "Lambda 4", "s": "lambda4", "u": "λ"}, {"t": "Lambda Target", "s": "LAMBDATarget", "u": "λ"}, {"t": "Lap Time", "s": "laptime", "u": ""}, {"t": "Launch control fuel enrich", "s": "launchcontolfuelenrich", "u": "%"}, {"t": "Launch control ign ret.", "s": "launchctrolignretard", "u": "%"}, {"t": "Leading ign", "s": "Leadingign", "u": ""}, {"t": "left indicator", "s": "leftindicator", "u": ""}, {"t": "Limp mode", "s": "limpmode", "u": ""}, {"t": "Linear boost", "s": "BoostPreskpa", "u": ""}, {"t": "Lost sync count", "s": "lostsynccount", "u": ""}, {"t": "Lowbeam", "s": "lowBeam", "u": ""}, {"t": "M.I.L", "s": "mil", "u": ""}, {"t": "MAF 1 Volt", "s": "MAF1V", "u": "V"}, {"t": "MAF 2 Volt", "s": "MAF2V", "u": "V"}, {"t": "MAF activity", "s": "MAFactivity", "u": "%"}, {"t": "MAP", "s": "MAP", "u": "kPa"}, {"t": "MAP Volt.", "s": "PressureV", "u": "V"}, {"t": "MAP2", "s": "MAP2", "u": "kPa"}, {"t": "Master speed", "s": "MVSS", "u": "kph"}, {"t": "Metering Oil Pump", "s": "Moilp", "u": "V"}, {"t": "Miss count", "s": "missccount", "u": ""}, {"t": "Nitrous Duty Cycle 1", "s": "nitrous1_duty", "u": ""}, {"t": "Nitrous Duty Cycle 2", "s": "nitrous2_duty", "u": ""}, {"t": "Nitrous Fuel Pulsewidth", "s": "n2o_addfuel", "u": ""}, {"t": "Nitrous Internal Timer", "s": "nitrous_timer_out", "u": ""}, {"t": "Nitrous Timing", "s": "n2o_retard", "u": ""}, {"t": "NOS", "s": "nosactive", "u": ""}, {"t": "NOS Pres.", "s": "nospress", "u": "kPa"}, {"t": "NOS sw.", "s": "nosswitch", "u": ""}, {"t": "O2 CORR L BANK", "s": "LEFTBANKO2CORR", "u": "%"}, {"t": "O2 CORR R BANK ", "s": "RIGHTBANKO2CORR", "u": "%"}, {"t": "O2 Volt 1", "s": "O2volt", "u": "V"}, {"t": "O2 Volt 2", "s": "O2volt_2", "u": "V"}, {"t": "Odometer", "s": "Odo", "u": "km"}, {"t": "Oil Pres", "s": "oilpres", "u": "kPa"}, {"t": "Oil Temp.", "s": "oiltemp", "u": "°C"}, {"t": "OilP Light", "s": "oilpressurelamp", "u": ""}, {"t": "OutputVoltage", "s": "OutputVoltage", "u": ""}, {"t": "Overtemp Light", "s": "overtempalarm", "u": ""}, {"t": "PAN VAC", "s": "PANVAC", "u": "kPa"}, {"t": "PhaseACurrent", "s": "PhaseACurrent", "u": ""}, {"t": "PhaseBCurrent", "s": "PhaseBCurrent", "u": ""}, {"t": "PhaseCCurrent", "s": "PhaseCCurrent", "u": ""}, {"t": "PIM", "s": "pim", "u": "kPa"}, {"t": "Power", "s": "Power", "u": "KW"}, {"t": "Pri. Inj pulse width", "s": "Primaryinp", "u": ""}, {"t": "Rally antilag sw.", "s": "rallyantilagswitch", "u": ""}, {"t": "REV LIM 2STEP", "s": "REVLIM2STEP", "u": ""}, {"t": "REV LIM 3STEP", "s": "REVLIM3STEP", "u": ""}, {"t": "REV LIM BOURNOUT", "s": "REVLIMBOURNOUT", "u": ""}, {"t": "REV LIM HIGHSIDE", "s": "REVLIMGIGHSIDE", "u": ""}, {"t": "Right Indicator", "s": "rightindicator", "u": ""}, {"t": "Rorary Trimpot 1", "s": "RotaryTrimpot1", "u": ""}, {"t": "Rorary Trimpot 2", "s": "RotaryTrimpot2", "u": ""}, {"t": "Rorary Trimpot 3", "s": "RotaryTrimpot3", "u": ""}, {"t": "RPM", "s": "rpm", "u": "rpm"}, {"t": "RtdTemp2", "s": "RtdTemp2", "u": ""}, {"t": "RtdTemp3", "s": "RtdTemp3", "u": ""}, {"t": "RtdTemp4", "s": "RtdTemp4", "u": ""}, {"t": "RtdTemp5", "s": "RtdTemp5", "u": ""}, {"t": "Secondary Inj. Pulse width", "s": "Secinjpulse", "u": "ms"}, {"t": "Sensor 1", "s": "sens1", "u": ""}, {"t": "Sensor 1", "s": "sens4", "u": ""}, {"t": "Sensor 2", "s": "sens2", "u": ""}, {"t": "Sensor 3", "s": "sens3", "u": ""}, {"t": "Sensor 4", "s": "sens4", "u": ""}, {"t": "Sensor 5", "s": "sens5", "u": ""}, {"t": "Sensor 6", "s": "sens6", "u": ""}, {"t": "Sensor 7", "s": "sens7", "u": ""}, {"t": "Seq Pulsewidth cyl#1", "s": "pwseq1", "u": ""}, {"t": "Seq Pulsewidth cyl#2", "s": "pwseq2", "u": ""}, {"t": "Seq Pulsewidth cyl#3", "s": "pwseq3", "u": ""}, {"t": "Seq Pulsewidth cyl#4", "s": "pwseq4", "u": ""}, {"t": "Set Target slip", "s": "dsettargetslip", "u": ""}, {"t": "Slave speed", "s": "SVSS", "u": "kph"}, {"t": "Speed", "s": "speed", "u": "kph"}, {"t": "Steering Wheel Angle", "s": "SteeringWheelAngle", "u": "°"}, {"t": "Target Boost", "s": "targetbstlelkpa", "u": "kPa"}, {"t": "TC COMMAND", "s": "TCCOMMAND", "u": ""}, {"t": "TCS OFFSET", "s": "TRACTIONCTRLOFFSET", "u": ""}, {"t": "Throttle Position", "s": "TPS", "u": "%"}, {"t": "Timed duty 1", "s": "timeddutyout1", "u": ""}, {"t": "Timed duty 2", "s": "timeddutyout2", "u": "V"}, {"t": "Timed duty output active", "s": "timeddutyoutputactive", "u": ""}, {"t": "TirepresLF", "s": "TirepresLF", "u": "kPa"}, {"t": "TirepresLR", "s": "TirepresLR", "u": "kPa"}, {"t": "TirepresRF", "s": "TirepresRF", "u": "kPa"}, {"t": "TirepresRR", "s": "TirepresRR", "u": "kPa"}, {"t": "TiretempLF", "s": "TiretempLF", "u": "°C"}, {"t": "TiretempLR", "s": "TiretempLR", "u": "°C"}, {"t": "TiretempRF", "s": "TiretempRF", "u": "°C"}, {"t": "TiretempRR", "s": "TiretempRR", "u": "°C"}, {"t": "Torque", "s": "Torque", "u": "nm"}, {"t": "Torque red. cut active", "s": "torqueredcutactive", "u": ""}, {"t": "Torque red. level active", "s": "torqueredlevelactive", "u": ""}, {"t": "TorqueShudder", "s": "TorqueShudder", "u": ""}, {"t": "Total fuel trim", "s": "totalfueltrim", "u": ""}, {"t": "Total ign comp", "s": "totaligncomp", "u": ""}, {"t": "TPS V", "s": "ThrottleV", "u": "V"}, {"t": "Traction Control", "s": "tractionControl", "u": ""}, {"t": "Traction ctrl. power limit", "s": "tractionctlpowerlimit", "u": ""}, {"t": "Trailing Ign.", "s": "Trailingign", "u": ""}, {"t": "Transient throttle active", "s": "transientthroactive", "u": ""}, {"t": "Transmission Oil T.", "s": "transoiltemp", "u": ""}, {"t": "Trigger Counter", "s": "triggerccounter", "u": ""}, {"t": "Triggers since last home", "s": "triggersrsinceasthome", "u": ""}, {"t": "Trim", "s": "TRIM", "u": ""}, {"t": "Trip meter", "s": "Trip", "u": "km"}, {"t": "Turbo rpm", "s": "turborpm", "u": "rpm"}, {"t": "Turbo rpm 2", "s": "turborpm2", "u": "rpm"}, {"t": "Undriven avg. speed", "s": "undrivenavgspeed", "u": ""}, {"t": "User Channel 1", "s": "Userchannel1", "u": ""}, {"t": "User Channel 10", "s": "Userchannel10", "u": ""}, {"t": "User Channel 11", "s": "Userchannel11", "u": ""}, {"t": "User Channel 12", "s": "Userchannel12", "u": ""}, {"t": "User Channel 2", "s": "Userchannel2", "u": ""}, {"t": "User Channel 3", "s": "Userchannel3", "u": ""}, {"t": "User Channel 4", "s": "Userchannel4", "u": ""}, {"t": "User Channel 5", "s": "Userchannel5", "u": ""}, {"t": "User Channel 6", "s": "Userchannel6", "u": ""}, {"t": "User Channel 7", "s": "Userchannel7", "u": ""}, {"t": "User Channel 8", "s": "Userchannel8", "u": ""}, {"t": "User Channel 9", "s": "Userchannel9", "u": ""}, {"t": "User Channel 9", "s": "Userchannel9", "u": ""}, {"t": "VABvdVoltage", "s": "VABvdVoltage", "u": ""}, {"t": "VBCvqVoltage", "s": "VBCvqVoltage", "u": ""}, {"t": "Waste gate Pres.", "s": "wastegatepress", "u": "kPa"}, {"t": "Wheel slip", "s": "wheelslip", "u": "%"}, {"t": "Wheel speed difference", "s": "wheeldiff", "u": ""}, {"t": "Wheel speed left front", "s": "wheelspdftleft", "u": "kph"}, {"t": "Wheel speed left rear", "s": "wheelspdrearleft", "u": "kph"}, {"t": "Wheel speed right front", "s": "wheelspdftright", "u": "kph"}, {"t": "Wheel speed right rear", "s": "wheelspdrearright", "u": "kph"}, {"t": "X accel.", "s": "accelx", "u": "G"}, {"t": "Y accel.", "s": "accely", "u": "G"}, {"t": "Z accel.", "s": "accelz", "u": "G"}];
+// PNGs in the dash's /home/pi/Logo folder (from the backup)
+const LOGO_FILES = ["Blue Dash2.png","Blue Dash3.png","Blue_Dash_2.png","Bull_Style1 10.png","Bull_Style1.png","Bull_Style2 10.png","Bull_Style2.png","center.png","checkengine.png","checkengine_off.png","ConfigDash test.png","ConfigDash.png","DashTemplate1.png","GTR.png","handbrake.png","handbrake_off.png","High Beam off.png","High Beam.png","IH8ULP MFD background test.png","Indicator_left.png","Indicator_left_off.png","Indicator_right.png","Indicator_right_off.png","Link gear 1.png","Link gear 2.png","Link gear 3.png","Link gear 4.png","Link gear 5.png","Link gear 6.png","Link gear N.png","Link MXS Strada template.png","Link shift 1.png","Link shift 2.png","Link shift 3.png","Link shift 4.png","Link shift 5.png","Link shift 6.png","Link shift 7.png","Link shift.png","Logo (2).png","Logo.png","Logo-Jettco.png","low beam off.png","low beam.png","Main_Dash_blue.png","Main_Dash_green.png","Main_Dash_red.png","MainDash.png","MFD Gear 1.png","MFD Gear 2.png","MFD Gear 3.png","MFD Gear 4.png","MFD Gear 5.png","MFD Gear 6.png","MFD Gear N.png","MFD.png","OilLight.png","OilLight_off.png","Perfect Dash test.png","Perfect Dash.png","Perfect Dash Eunos.png","ME442 Diag.png","PowerTune.png","Ring.png","s2000 style dash layout.png","Shift_Lights_All.png","Shift_Lights_Blue_1.png","Shift_Lights_Green_1.png","Shift_Lights_Green_2.png","Shift_Lights_Green_3.png","Shift_Lights_Purple.png","Shift_Lights_Red_1.png","Shift_Lights_Red_2.png","Shift_Lights_Red_3.png","TCS.png","TCS_off.png","Test.png"];
+</script>
+<script>
+// ---------------------------------------------------------------------------
+// File format (from the dash's own Userdash1.qml / create*.js): one gauge per
+// line, comma-separated, first field is the gauge type. Columns below are
+// 0-based AFTER the type. Columns not listed are preserved untouched.
+// ---------------------------------------------------------------------------
+const LOGO_DIR = "../dash-files/home/pi/Logo/";   // your dash's /home/pi/Logo, copied next to this folder
+// Text labels size their font in POINTS (MyTextLabel.qml: font.pointSize), other gauges in pixels.
+// The dash tells Qt its screen is 86 mm tall for 480 px (startpowertune.sh), i.e. 141.8 dpi,
+// so 1 pt = 141.8 / 72 = 1.97 px on screen.
+const PT_TO_PX = (480 / (86 / 25.4)) / 72;
+const FIELDS = {
+  "Text label gauge": { x:0, y:1, text:2, font:3, size:4, color:5, source:6, bold:7, dec:8 },
+  "Square gauge":     { w:0, h:1, x:2, y:3, max:4, dec:5, unit:6, title:7, source:12, source2:13,
+                        frame:16, bgc:17, titlebg:18, titlecolor:19, color:20, barc:21, titlesize:22, size:23, font:25, vfont:26 },
+  "Round gauge":      { w:0, x:1, y:2, source:3, max:4, min:5, start:8, end:9, needle:34, ninset:16, nlen:30, nbase:31, desc:57 },
+  "Bar gauge":        { w:0, h:1, x:2, y:3, min:4, max:5, dec:6, unit:7, source:8 },
+  "State gauge":      { x:0, y:1, h:2, source:3, trigger:4, off:5, on:6 },
+  "State GIF":        { x:0, y:1, h:2, source:3, trigger:4, off:5, on:6 },
+  "gauge image":      { x:0, y:1, h:2, pic:3 },
+};
+// JSON keys used by the live datastore in PowerTune.conf, in file-column order.
+const JSON_COLS = {
+  "Text label gauge": ["x","y","displaytext","fonttype","fontsize","textcolor","datasourcename","fontbold","decimalpoints","warnvaluehigh","warnvaluelow"],
+  "State gauge": ["x","y","height","source","trigger","pictureoff","pictureon"],
+  "Square gauge": ["width","height","x","y","maxvalue","decplace","unit","id","vertgaugevis","horigaugevis","secvaluevis","*Dashboard","valuepropertymain","valuepropertysec","warnvaluehigh","warnvaluelow","framecolor","backroundcolor","titlecolor","titletextcolor","textcolor","barcolor","titlefontsize","mainfontsize","decplace2","textfont","valuefont"],
+  "Round gauge": ["width","x","y","mainvaluename","maxvalue","minvalue","warnvaluehigh","warnvaluelow","startangle","endangle","redareastart","divider","tickmarksteps","minortickmarksteps","setlabelsteps","decimalpoints","needleinset","setlabelinset","setminortickmarkinset","setmajortickmarkinset","minortickmarkheight","minortickmarkwidth","tickmarkheight","tickmarkwidth","trailhighboarder","trailmidboarder","traillowboarder","trailbottomboarder","labelfontsize","needleTipWidth","needleLength","needleBaseWidth","redareainset","redareawidth","needlecolor","needlecolor2","backroundcolor","warningcolor","minortickmarkcoloractive","minortickmarkcolorinactive","majortickmarkcoloractive","majortickmarkcolorinactive","labelcoloractive","labelcolorinactive","outerneedlecolortrailsave","middleneedlecortrailsave","lowerneedlecolortrailsave","innerneedlecolortrailsave","needlevisible","ringvisible","needlecentervisisble","labelfont","desctextx","desctexty","desctextfontsize","desctextfontbold","desctextfonttype","desctextdisplaytext","desctextdisplaytextcolor","peakneedlecolor","peakneedlecolor2","peakneedlelenght","peakneedlebasewidth","peakneedletipwidth","peakneedleoffset","peakneedlevisible"],
+};
+const LABELS = { x:"X", y:"Y", w:"Width", h:"Height", text:"Text", font:"Font", vfont:"Value font", size:"Font size",
+  color:"Colour", source:"Channel", source2:"2nd channel", bold:"Bold", dec:"Decimals", max:"Max", min:"Min",
+  unit:"Unit", title:"Title", frame:"Frame colour", bgc:"Background", titlebg:"Title bar colour", titlecolor:"Title text colour",
+  barc:"Bar colour", titlesize:"Title size", trigger:"On at ≥", on:"Picture on", off:"Picture off", pic:"Picture",
+  start:"Start angle", end:"End angle", needle:"Needle colour", ninset:"Needle inset %", nlen:"Needle length %",
+  nbase:"Needle width %", desc:"Label" };
+const SOURCE_KEYS = ["source", "source2"];
+const DS = (typeof DATASOURCES !== "undefined") ? DATASOURCES : [];
+const dsName = Object.fromEntries(DS.map(d => [d.s, d.t]));
+const LOGOS = ["Shift_Lights_Red_2.png"]; // filled from gauges + background list below
+
+let gauges = [];   // { type, cols: [] }
+let sel = -1;
+const $ = id => document.getElementById(id);
+const stage = $("stage");
+
+function msg(t) { $("msg").textContent = t; }
+function num(v, d = 0) { const n = parseFloat(v); return isFinite(n) ? n : d; }
+function f(g, k) { const i = FIELDS[g.type]?.[k]; return i === undefined ? undefined : g.cols[i]; }
+function setf(g, k, v) { const i = FIELDS[g.type][k]; while (g.cols.length <= i) g.cols.push(""); g.cols[i] = v; }
+
+// ---------------------------------------------------------------- undo / redo
+// A snapshot of the page is taken just before each change. Repeated edits to
+// the same thing in a row (typing in one box, nudging one gauge) are one step.
+const undoStack = [], redoStack = [];
+let lastChange = null;
+const snapshot = () => JSON.stringify({ gauges, sel });
+function remember(key = null) {
+  if (key && key === lastChange) return;
+  undoStack.push(snapshot());
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack.length = 0; lastChange = key; updateUndoButtons();
+}
+function restore(from, to) {
+  if (!from.length) return;
+  to.push(snapshot());
+  const s = JSON.parse(from.pop());
+  gauges = s.gauges; sel = s.sel < gauges.length ? s.sel : -1;
+  lastChange = null; render(); renderProps(); updateUndoButtons();
+}
+function undo() { restore(undoStack, redoStack); }
+function redo() { restore(redoStack, undoStack); }
+function clearHistory() { undoStack.length = 0; redoStack.length = 0; lastChange = null; updateUndoButtons(); }
+function updateUndoButtons() { $("undo").disabled = !undoStack.length; $("redo").disabled = !redoStack.length; }
+// Images come from dash-files/home/pi/Logo next to this page, or from a folder
+// picked with "Images folder…" (needed where relative files can't be read).
+const pickedImages = {};
+function logoUrl(name) { return pickedImages[name] || LOGO_DIR + encodeURIComponent(name); }
+function picUrl(p) { if (!p) return ""; const m = /\/home\/pi\/Logo\/(.+)$/.exec(p); return m ? logoUrl(decodeURIComponent(m[1])) : ""; }
+let imgHintShown = false;
+function imgFailed() {
+  if (imgHintShown || Object.keys(pickedImages).length) return;
+  imgHintShown = true;
+  msg("Images can't be read from here. Click \"Images folder…\" and pick dash-files/home/pi/Logo, or open dash-editor.html in Chrome/Edge.");
+}
+
+// Sample values so the preview looks alive.
+function sample(src) {
+  if (!src || !src.trim()) return null;
+  const s = src.toLowerCase(), rpm = num($("rpm").value);
+  if (s === "rpm") return rpm;
+  if (s.includes("afr")) return 14.7;
+  if (s === "lambda") return 1.0;
+  if (s.startsWith("egt")) return 650;
+  if (s.includes("water") || s.includes("oiltemp")) return 88;
+  if (s.includes("speed")) return Math.round(rpm / 60);
+  if (s.includes("batt")) return 13.8;
+  if (s === "odo") return 150095.8;
+  return 42;
+}
+
+// ---------------------------------------------------------------- parse / emit
+function parseTxt(text) {
+  const out = [], skipped = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const parts = line.split(",");
+    const type = parts.shift();
+    if (!FIELDS[type]) skipped.push(type);
+    out.push({ type, cols: parts });
+  }
+  return { out, skipped };
+}
+function emitTxt() { return gauges.map(g => [g.type, ...g.cols].join(",")).join("\n") + "\n"; }
+
+// Page backgrounds are separate QSettings values, e.g.
+// savebackroundpicture1=@Variant(\0\0\0\x11\0\0\0'file:///home/pi/Logo/Perfect%20Dash.png)
+function parseBackgrounds(text) {
+  const bgs = {};
+  for (const m of text.matchAll(/^savebackroundpicture(\d)=.*?file:\/\/\/home\/pi\/Logo\/([^)\r\n]+)\)/gm))
+    bgs["datastore" + m[1]] = decodeURIComponent(m[2]);
+  return bgs;
+}
+function parseConf(text) {
+  const pages = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^(datastore\d)="(.*)"$/.exec(line);
+    if (!m || !m[2]) continue;
+    // QSettings escapes: \" and \\ ; JSON itself is inside.
+    const json = m[2].replace(/\\(["\\])/g, "$1");
+    try { pages[m[1]] = JSON.parse(json); } catch (e) { console.warn(m[1], e); }
+  }
+  return pages;
+}
+function jsonToGauge(o) {
+  const cols = JSON_COLS[o.info];
+  if (!cols) return null;
+  const out = cols.map(k => k[0] === "*" ? k.slice(1) : (o[k] === undefined ? "" : String(o[k])));
+  // Match what the dash's own Export writes, so files look the same either way.
+  if (o.info === "Text label gauge" || o.info === "Square gauge") out.push("");
+  if (o.info === "Round gauge") {
+    const blank = [" ", "", " ", "", " ", "", ""], start = cols.indexOf("peakneedlecolor");
+    blank.forEach((b, j) => { if (out[start + j] === "") out[start + j] = b; });
+  }
+  return { type: o.info, cols: out };
+}
+
+// ---------------------------------------------------------------- render
+function render() {
+  stage.innerHTML = "";
+  const bg = $("bg").value;
+  if (bg) { const im = new Image(); im.className = "bgimg"; im.onerror = imgFailed; im.src = logoUrl(bg); stage.appendChild(im); }
+  gauges.forEach((g, i) => {
+    const el = drawGauge(g);
+    el.classList.add("g");
+    if (i === sel) el.classList.add("sel");
+    el.dataset.i = i;
+    el.style.zIndex = i + 1;
+    stage.appendChild(el);
+  });
+  renderList();
+  $("raw").value = emitTxt();
+}
+
+function drawGauge(g) {
+  const el = document.createElement("div");
+  const x = num(f(g, "x")), y = num(f(g, "y"));
+  el.style.left = x + "px"; el.style.top = y + "px";
+  const t = g.type;
+  if (t === "Text label gauge") {
+    const src = (f(g, "source") || "").trim();
+    const v = sample(src);
+    el.textContent = v === null ? f(g, "text") : v.toFixed(Math.max(0, num(f(g, "dec"))));
+    el.style.color = f(g, "color") || "white";
+    el.style.fontSize = num(f(g, "size"), 15) * PT_TO_PX + "px";
+    el.style.fontFamily = `"${f(g, "font")}", sans-serif`;
+    el.style.fontWeight = f(g, "bold") === "true" ? "700" : "400";
+    el.style.whiteSpace = "pre";
+    el.style.lineHeight = "1.2";
+    if (!el.textContent.trim()) { el.textContent = "·"; el.classList.add("hidden"); }
+  } else if (t === "Square gauge") {
+    const w = num(f(g, "w"), 100), h = num(f(g, "h"), 60);
+    Object.assign(el.style, { width: w + "px", height: h + "px",
+      border: "2px solid " + cssc(f(g, "frame")), background: cssc(f(g, "bgc")), color: f(g, "color") || "white" });
+    const title = document.createElement("div");
+    title.textContent = (f(g, "title") || "").trim() || "\u00a0";
+    Object.assign(title.style, { fontSize: num(f(g, "titlesize"), 14) + "px", background: cssc(f(g, "titlebg")),
+      color: cssc(f(g, "titlecolor"), "white"), padding: "0 4px" });
+    const val = document.createElement("div");
+    const v = sample(f(g, "source"));
+    val.textContent = v === null ? "—" : v.toFixed(Math.max(0, num(f(g, "dec"))));
+    // Squaregauge.qml centres the value on the whole gauge, not below the title.
+    Object.assign(val.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: Math.min(num(f(g, "size"), 40), h * 0.8) + "px", fontFamily: `"${f(g, "vfont")}", sans-serif` });
+    el.append(title, val);
+    // Unit: pinned 5px from the right edge, 1/1.8 of the value size (Squaregauge.qml).
+    const unitText = (f(g, "unit") || "").trim();
+    if (unitText) {
+      const u = document.createElement("div");
+      u.textContent = unitText;
+      Object.assign(u.style, { position: "absolute", right: "5px", top: "0", bottom: "0", display: "flex", alignItems: "center",
+        fontSize: num(f(g, "size"), 40) / 1.8 + "px", fontWeight: "700", fontFamily: `"${f(g, "font")}", sans-serif`,
+        color: f(g, "color") || "white" });
+      el.appendChild(u);
+    }
+    if (cssc(f(g, "frame")) === "transparent" && cssc(f(g, "bgc")) === "transparent") el.classList.add("hidden");
+  } else if (t === "Round gauge") {
+    const w = num(f(g, "w"), 200);
+    el.style.width = el.style.height = w + "px";
+    const a0 = num(f(g, "start"), -135), a1 = num(f(g, "end"), 135);
+    const mn = num(f(g, "min")), mx = num(f(g, "max"), 1);
+    const v = sample(f(g, "source")) ?? mn;
+    const a = a0 + (a1 - a0) * Math.min(1, Math.max(0, (v - mn) / ((mx - mn) || 1)));
+    const r = w / 2, pt = (ang, rr) => { const t = (ang - 90) * Math.PI / 180; return [r + rr * Math.cos(t), r + rr * Math.sin(t)]; };
+    const [sx, sy] = pt(a0, r - 3), [ex, ey] = pt(a1, r - 3);
+    // Needle as RoundGauge.qml draws it: the item's y = radius × inset%, so its base sits
+    // -inset% out from the centre and the tip a further length% out; it tapers from
+    // width% of the radius at the base to tipWidth px at the tip.
+    const rBase = -r * num(f(g, "ninset")) / 100, rTip = rBase + r * num(f(g, "nlen"), 85) / 100;
+    const bw = Math.max(2, r * num(f(g, "nbase"), 2) / 100), tw = Math.max(1, num(g.cols[29], 2));
+    const side = (rr, hw, s) => { const t = (a - 90) * Math.PI / 180, [px, py] = pt(a, rr);
+      return `${px - s * hw * Math.sin(t)},${py + s * hw * Math.cos(t)}`; };
+    const needlePts = [side(rBase, bw / 2, 1), side(rTip, tw / 2, 1), side(rTip, tw / 2, -1), side(rBase, bw / 2, -1)].join(" ");
+    const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+    el.innerHTML = `<svg width="${w}" height="${w}" viewBox="0 0 ${w} ${w}">
+      <path d="M${sx},${sy} A${r - 3},${r - 3} 0 ${large} 1 ${ex},${ey}" fill="none" stroke="#555" stroke-width="2" stroke-dasharray="4 4"/>
+      <polygon points="${needlePts}" fill="${cssc(f(g, "needle"), "red")}"/></svg>`;
+  } else if (t === "State gauge" || t === "State GIF" || t === "gauge image") {
+    const h = num(f(g, "h"), 50);
+    const on = t === "gauge image" ? true : (sample(f(g, "source")) ?? 0) >= num(f(g, "trigger"));
+    const src = picUrl(t === "gauge image" ? f(g, "pic") : (on ? f(g, "on") : f(g, "off")));
+    // The dash draws these in an h×h box with the picture scaled to fit (Statepicture.qml).
+    Object.assign(el.style, { width: h + "px", height: h + "px" });
+    if (src) {
+      const im = new Image(); im.onerror = imgFailed; im.src = src; im.draggable = false;
+      Object.assign(im.style, { width: "100%", height: "100%", objectFit: "contain", display: "block" });
+      el.appendChild(im);
+    } else {
+      el.classList.add("hidden");
+    }
+  } else if (t === "Bar gauge") {
+    Object.assign(el.style, { width: num(f(g, "w"), 30) + "px", height: num(f(g, "h"), 100) + "px", border: "1px solid #888" });
+  } else {
+    el.textContent = t; Object.assign(el.style, { color: "#f88", fontSize: "11px" });
+  }
+  return el;
+}
+function cssc(c, d = "transparent") { c = (c || "").trim(); return c || d; }
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function describe(g) {
+  const src = (f(g, "source") || "").trim();
+  const label = g.type === "Text label gauge" ? (src ? (dsName[src] || src) : `"${f(g, "text")}"`)
+    : g.type === "Square gauge" ? `${(f(g, "title") || "").trim() || "—"} · ${dsName[src] || src}`
+    : src ? (dsName[src] || src) : "";
+  return `${g.type.replace(" gauge", "")}: ${label}`;
+}
+function renderList() {
+  const ul = $("list"); ul.innerHTML = "";
+  gauges.forEach((g, i) => {
+    const li = document.createElement("li"); li.textContent = describe(g);
+    if (i === sel) li.className = "sel";
+    li.onclick = () => select(i); ul.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------- properties
+function select(i) { if (i !== sel) lastChange = null; sel = i; render(); renderProps(); }
+function renderProps() {
+  const p = $("props"), g = gauges[sel];
+  $("selBtns").hidden = !g;
+  if (!g) { $("selTitle").textContent = "Nothing selected"; p.className = "muted";
+    p.textContent = "Click a gauge on the screen or in the list. Drag to move; arrow keys nudge (Shift = 10px). Delete removes."; return; }
+  $("selTitle").textContent = g.type; p.className = ""; p.innerHTML = "";
+  for (const k of Object.keys(FIELDS[g.type] || {})) {
+    const row = document.createElement("div"); row.className = "row";
+    const lab = document.createElement("label"); lab.textContent = LABELS[k] || k;
+    if (k === "size") lab.textContent += g.type === "Text label gauge" ? " (pt)" : " (px)";
+    let inp;
+    if (k === "bold") {
+      inp = document.createElement("select"); inp.innerHTML = "<option>true</option><option>false</option>";
+    } else {
+      inp = document.createElement("input");
+      if (SOURCE_KEYS.includes(k)) inp.setAttribute("list", "dslist");
+      if (["x","y","w","h","size","titlesize","dec","max","min","trigger","start","end"].includes(k)) inp.type = "number";
+    }
+    inp.value = (f(g, k) ?? "").trim() === "" && !SOURCE_KEYS.includes(k) ? (f(g, k) ?? "") : (f(g, k) ?? "").trim();
+    inp.oninput = () => {
+      let v = inp.value.replace(/,/g, " ");          // commas would break the file
+      if (SOURCE_KEYS.includes(k) && !v) v = " ";     // dash uses a single space for "none"
+      remember(`edit:${sel}:${k}`);
+      setf(g, k, v); render();
+      if (SOURCE_KEYS.includes(k)) hint.textContent = dsName[v.trim()] ? dsName[v.trim()] : (v.trim() ? "unknown channel" : "");
+    };
+    row.append(lab, inp); p.appendChild(row);
+    let hint;
+    if (SOURCE_KEYS.includes(k)) {
+      hint = document.createElement("div"); hint.className = "muted"; hint.style.gridColumn = "2";
+      const v = (f(g, k) || "").trim(); hint.textContent = dsName[v] || (v ? "unknown channel" : "");
+      row.appendChild(hint);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- dragging
+let drag = null;
+stage.addEventListener("pointerdown", e => {
+  const el = e.target.closest(".g"); if (!el) { select(-1); return; }
+  const i = +el.dataset.i; if (i !== sel) select(i);
+  const g = gauges[i], z = zoom();
+  drag = { g, sx: e.clientX, sy: e.clientY, x: num(f(g, "x")), y: num(f(g, "y")), z };
+  stage.setPointerCapture(e.pointerId); e.preventDefault();
+});
+stage.addEventListener("pointermove", e => {
+  if (!drag) return;
+  if (!drag.moved) { remember(); drag.moved = true; }
+  setf(drag.g, "x", String(Math.round(drag.x + (e.clientX - drag.sx) / drag.z)));
+  setf(drag.g, "y", String(Math.round(drag.y + (e.clientY - drag.sy) / drag.z)));
+  const el = stage.querySelector(`.g[data-i="${sel}"]`);
+  if (el) { el.style.left = f(drag.g, "x") + "px"; el.style.top = f(drag.g, "y") + "px"; }
+});
+stage.addEventListener("pointerup", () => { if (drag) { drag = null; render(); renderProps(); } });
+document.addEventListener("keydown", e => {
+  if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;   // let text boxes keep their own undo
+  const key = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && key === "z") { e.shiftKey ? redo() : undo(); e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && key === "y") { redo(); e.preventDefault(); return; }
+  if (sel < 0) return;
+  const g = gauges[sel], s = e.shiftKey ? 10 : 1;
+  const mv = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, -s], ArrowDown: [0, s] }[e.key];
+  if (mv) { remember("nudge:" + sel); setf(g, "x", String(Math.round(num(f(g, "x")) + mv[0]))); setf(g, "y", String(Math.round(num(f(g, "y")) + mv[1])));
+    render(); renderProps(); e.preventDefault(); }
+  if (e.key === "Delete") { $("del").click(); e.preventDefault(); }
+});
+
+// ---------------------------------------------------------------- toolbar
+function load(list, label) { gauges = list; sel = -1; clearHistory(); render(); renderProps(); msg(label); }
+$("openTxt").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const { out, skipped } = parseTxt(await file.text());
+  $("fname").value = file.name.replace(/\.txt$/i, "");
+  $("confPage").hidden = true;
+  load(out, `Opened ${file.name}: ${out.length} gauges.` + (skipped.length ? ` Not previewed (kept as-is): ${[...new Set(skipped)].join(", ")}.` : ""));
+  e.target.value = "";
+};
+let confPages = {};
+$("openConf").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const text = await file.text();
+  confPages = parseConf(text);
+  const confBgs = parseBackgrounds(text);
+  const keys = Object.keys(confPages);
+  if (!keys.length) { msg(`No dash pages in ${file.name}. Pick dash-files/PowerTune-live-pages.conf (about 66 KB) instead.`); return; }
+  const cp = $("confPage"); cp.innerHTML = keys.map(k => `<option value="${k}">Page ${k.slice(-1)}</option>`).join(""); cp.hidden = false;
+  cp.onchange = () => {
+    const items = confPages[cp.value], list = [], skipped = [];
+    for (const o of items) { const g = jsonToGauge(o); g ? list.push(g) : skipped.push(o.info); }
+    $("fname").value = "Page" + cp.value.slice(-1);
+    const bg = confBgs[cp.value] || "";
+    $("bg").value = [...$("bg").options].some(o => o.value === bg) ? bg : "";
+    load(list, `Live page ${cp.value.slice(-1)}: ${list.length} gauges` + (bg ? `, background ${bg}.` : ".") + (skipped.length ? ` Skipped (unknown layout): ${[...new Set(skipped)].join(", ")}.` : ""));
+  };
+  cp.onchange(); e.target.value = "";
+};
+$("openImgs").onchange = e => {
+  let n = 0;
+  for (const file of e.target.files) {
+    if (!/\.png$/i.test(file.name)) continue;
+    if (pickedImages[file.name]) URL.revokeObjectURL(pickedImages[file.name]);
+    pickedImages[file.name] = URL.createObjectURL(file); n++;
+    if (![...$("bg").options].some(o => o.value === file.name))
+      $("bg").insertAdjacentHTML("beforeend", `<option value="${esc(file.name)}">${esc(file.name.replace(/\.png$/i, ""))}</option>`);
+  }
+  render(); msg(n ? `Loaded ${n} images.` : "No PNG images in that folder. Pick dash-files/home/pi/Logo.");
+  e.target.value = "";
+};
+function add(g) { remember(); gauges.push(g); select(gauges.length - 1); }
+$("undo").onclick = undo;
+$("redo").onclick = redo;
+$("addText").onclick = () => add({ type: "Text label gauge", cols: ["350","200","LABEL","Lato","15","white"," ","true","0","20000","-20000",""] });
+$("addValue").onclick = () => add({ type: "Text label gauge", cols: ["350","230","0","Lato","15","white","egt2","true","0","20000","-20000",""] });
+$("addSquare").onclick = () => add({ type: "Square gauge", cols: ["200","100","300","190","100","0"," ","EGT","false","false","false","Dashboard","egt2","egt2","10000","-20000","white","black","grey","white","white","blue","18","50","0","Lato","Lato"] });
+$("dup").onclick = () => { const g = gauges[sel]; if (!g) return; const c = { type: g.type, cols: [...g.cols] };
+  if (FIELDS[c.type].x !== undefined) { setf(c, "x", String(num(f(c, "x")) + 10)); setf(c, "y", String(num(f(c, "y")) + 10)); } add(c); };
+$("del").onclick = () => { if (sel < 0) return; remember(); gauges.splice(sel, 1); sel = -1; render(); renderProps(); };
+$("save").onclick = () => {
+  const name = ($("fname").value.trim() || "MyDash").replace(/[^\w\- ]/g, "_") + ".txt";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([emitTxt()], { type: "text/plain" }));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+  msg(`Saved ${name}. Copy it to /home/pi/UserDashboards on the dash, then on the dash: double-tap → Clear → Import → pick it → Load → Save.`);
+};
+$("rpm").oninput = () => { $("rpmv").textContent = $("rpm").value; render(); };
+function zoom() {
+  const v = $("zoom").value;
+  return v === "fit" ? Math.min(2, (stage.parentNode.parentNode.clientWidth - 4) / 800) : num(v, 1);
+}
+$("zoom").onchange = () => { const z = zoom(); stage.style.transform = `scale(${z})`;
+  stage.parentNode.style.height = 480 * z + 2 + "px"; stage.parentNode.style.maxWidth = 800 * z + 2 + "px"; };
+window.addEventListener("resize", () => $("zoom").onchange());
+$("bg").onchange = render;
+
+// background choices: every PNG in the dash's Logo folder (logos.js)
+for (const n of (typeof LOGO_FILES !== "undefined" ? LOGO_FILES : []))
+  $("bg").insertAdjacentHTML("beforeend", `<option value="${esc(n)}">${esc(n.replace(/\.png$/, ""))}</option>`);
+$("dslist").innerHTML = DS.map(d => `<option value="${esc(d.s)}">${esc(d.t)}${d.u ? " (" + esc(d.u) + ")" : ""}</option>`).join("");
+$("zoom").onchange();
+updateUndoButtons();
+render();
+msg(DS.length ? `Ready. ${DS.length} channels loaded. Open a page .txt from dash-files/home/pi/UserDashboards, or open the live pages from dash-files/PowerTune-live-pages.conf.`
+  : "datasources.js missing: the channel list won't autocomplete.");
+</script>
+</body>
+</html>
